@@ -6,34 +6,63 @@ import { limiter } from './lib.mjs';
 
 export const CLI = fileURLToPath(new URL('../node_modules/@gitbook/cli/cli.js', import.meta.url));
 const CAPTURE = new URL('./capture-auth.mjs', import.meta.url).href;
+const COMMAND = fileURLToPath(new URL('./gblc.mjs', import.meta.url));
 
 const CONCURRENCY = 10; // 동시에 보내는 요청 수. 호출하는 쪽은 마음껏 병렬로 요청한다.
 const ATTEMPTS = 3;
 const MAX_WAIT_MS = 60_000; // 호출 제한이 이보다 늦게 풀리면 기다리지 않고 끝낸다.
 
+/** 로그인해야 해결되는 오류. 명령은 `code`를 보고 전용 종료 코드로 끝난다. 문구는 에이전트와 사용자가 함께 읽는다. */
+function loginRequired(reason) {
+  const message = [
+    `로그인 필요: ${reason}`,
+    '사용자에게 알린 뒤, 지금 이 명령을 실행한 에이전트가 같은 실행 권한으로 다음을 실행하고 사용자는 브라우저에서 승인합니다.',
+    `  node "${COMMAND}" login`,
+    '다른 앱이나 터미널에서 한 로그인은 이 환경에서 보이지 않을 수 있습니다.',
+  ].join('\n');
+  return Object.assign(new Error(message), { code: 'LOGIN_REQUIRED' });
+}
+
 /**
  * CLI의 `whoami`를 실행해, 필요하면 로그인을 갱신한 CLI가 쓰는 API 주소와 인증 값을 받는다.
- * 인증 값은 메모리에만 두고, CLI의 표준 출력(계정 정보)은 버린다.
+ * 인증 값은 메모리에만 둔다. CLI의 표준 출력(계정 정보)은 로그인 여부만 확인하고 버린다.
  */
 function cliCredentials() {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', CAPTURE, CLI, 'whoami', '--json'], {
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       windowsHide: true,
     });
     let credentials;
+    const out = [];
     const err = [];
     const timer = setTimeout(() => child.kill(), 90_000);
     child.on('message', (message) => (credentials = message));
+    child.stdout.on('data', (data) => out.push(data));
     child.stderr.on('data', (data) => err.push(data));
     child.on('error', reject);
-    child.on('close', () => {
+    child.on('close', (code) => {
       clearTimeout(timer);
       if (credentials) return resolve(credentials);
       const detail = Buffer.concat(err).toString('utf8').trim().slice(0, 500);
-      reject(new Error(`GitBook 로그인 정보가 없습니다. \`gblc.mjs login\`을 실행하세요. ${detail}`.trim()));
+      if (signedOut(Buffer.concat(out))) return reject(loginRequired('이 환경에 저장된 GitBook 로그인이 없습니다.'));
+      const message = [
+        `GitBook 로그인 확인 실패 (종료 코드 ${code ?? '시간 초과'})`,
+        '샌드박스에서 실행했다면 실행 승인을 받아 다시 실행하세요. 로그인이 만료됐다면 `login`을 다시 실행하세요.',
+        detail,
+      ];
+      reject(new Error(message.filter(Boolean).join('\n')));
     });
   });
+}
+
+/** `whoami --json`은 저장된 로그인이 없으면 `{ "authenticated": false }`를 출력한다. */
+function signedOut(stdout) {
+  try {
+    return JSON.parse(stdout.toString('utf8')).authenticated === false;
+  } catch {
+    return false;
+  }
 }
 
 /** 호출 제한 응답이 알려 주는 대기 시간. 알려 주지 않으면 null. */
@@ -56,7 +85,7 @@ export function createClient({ credentials = cliCredentials, fetch = globalThis.
       try {
         return await credentials();
       } catch (error) {
-        if (attempt >= ATTEMPTS) throw error;
+        if (error.code === 'LOGIN_REQUIRED' || attempt >= ATTEMPTS) throw error;
         await sleep(attempt * 3000);
       }
     }
@@ -97,7 +126,8 @@ export function createClient({ credentials = cliCredentials, fetch = globalThis.
       }
       const status = response?.status;
       // 실행 중에 만료된 로그인은 CLI로 한 번 갱신한다.
-      if (status === 401 && !renewed) {
+      if (status === 401) {
+        if (renewed) throw Object.assign(loginRequired(`GitBook이 로그인을 거부했습니다 (401). ${detail}`), { status });
         renewed = true;
         if (session === current) session = null;
         attempt--;

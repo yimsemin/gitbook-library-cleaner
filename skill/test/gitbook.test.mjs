@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '../scripts/gitbook.mjs';
 import { scan } from '../scripts/scan.mjs';
 
@@ -87,7 +89,7 @@ test('an expired login is renewed once', async () => {
     renewed.calls.map(([, authorization]) => authorization),
     ['Bearer 1', 'Bearer 2'],
   );
-  await assert.rejects(fakeClient([reply(401), reply(401)]).api.space('s'), { status: 401 });
+  await assert.rejects(fakeClient([reply(401), reply(401)]).api.space('s'), { status: 401, code: 'LOGIN_REQUIRED' });
 });
 
 test('lists are read to the last page', async () => {
@@ -128,6 +130,25 @@ test('the saved CLI login is refreshed by the CLI and reused', async () => {
   } finally {
     process.env = previous;
     server.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// 처음 쓰는 사람과 에이전트가 만나는 상황. 빈 설정 폴더를 쓴다.
+test('without a saved login the command exits with the login code and says how to log in', () => {
+  const home = mkdtempSync(join(tmpdir(), 'gblc-'));
+  try {
+    const env = { ...process.env, APPDATA: home, HOME: home, XDG_CONFIG_HOME: home };
+    delete env.GITBOOK_TOKEN;
+    const command = fileURLToPath(new URL('../scripts/gblc.mjs', import.meta.url));
+    const result = spawnSync(process.execPath, [command, 'scan', 'abcdefghij', '--out', home], {
+      env,
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    assert.equal(result.status, 3, result.stderr);
+    assert.ok(result.stderr.includes(`node "${command}" login`));
+  } finally {
     rmSync(home, { recursive: true, force: true });
   }
 });
