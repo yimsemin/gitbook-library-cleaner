@@ -22,7 +22,8 @@ const USAGE = `사용법
   gblc.mjs login
   gblc.mjs scan <스페이스 URL|ID> [--cr <번호>] [--out <폴더>]
   gblc.mjs prepare --report <report.json> --approve <승인 ID> [--only <파일ID,...>] [--batch <개수>]
-  gblc.mjs verify --pending <pending.json> [--next] [--wait <초>]`;
+  gblc.mjs verify --pending <pending.json> [--next] [--wait <초>]
+종료 코드: 0 성공, 1 실패, 2 사용법 오류, 3 로그인 필요`;
 
 const readJSON = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const writeJSON = (path, data) => writeFileSync(path, JSON.stringify(data, null, 1));
@@ -210,5 +211,5 @@ try {
   }
 } catch (error) {
   console.error(`오류: ${error.message}`);
-  process.exitCode = 1;
+  process.exitCode = error.code === 'LOGIN_REQUIRED' ? 3 : 1;
 }

@@ -27,23 +27,33 @@ description: GitBook 스페이스 Library에서 어디에서도 참조되지 않
 
 `playwright.evaluate`는 읽기 전용이므로 삭제 스크립트에 쓰지 않는다. 탭의 `cdp` 기능으로 `Runtime.evaluate`를 보낸다.
 
-- 사용자가 설정의 **Browser > Developer mode > Enable full CDP access**를 켜야 한다. 꺼져 있으면 켜 달라고 요청하고 멈춘다.
+- 설치, 로그인, 검사, `prepare`, `verify`에는 Full CDP access가 필요 없다. 브라우저 삭제에만 필요하다.
+- 사용자가 설정의 **Browser > Developer mode > Enable full CDP access**를 켜야 한다. 꺼져 있으면 삭제 전에 멈추고 알린다: 브라우저 내부 기능까지 여는 위험이 큰 설정이며, 로그인한 사이트의 화면과 데이터에 영향을 줄 수 있다. 설정이 보이면 켜고, 적용되지 않으면 Codex를 완전히 종료한 뒤 다시 시작해야 할 수 있다. 삭제를 마치면 끄는 것을 권장한다.
+- 설정이 보이지 않거나 사용자가 원하지 않으면 삭제하지 않는다. 검사 결과만 보고하며, 다른 방법으로 우회하지 않는다. 설정을 에이전트가 직접 바꾸지 않는다.
 - `delete.js`, `next.js`는 파일을 코드로 읽어 `expression`에 그대로 넣는다. 내용을 옮겨 적지 않는다.
 - 상태 확인 식은 `awaitPromise: true`, `returnByValue: true`, `replMode: true`로 보내고 명령 대기 시간(`timeoutMs`)을 45000으로 둔다.
 - 응답에 `exceptionDetails`가 있으면 중단한다.
 
-## 1. 준비 (최초 1회)
+## 1. 준비: 설치와 로그인
 
-이 파일이 있는 폴더에서 실행한다. 이하 `<skill>`은 이 폴더의 경로다.
+이 파일이 있는 폴더가 `<skill>`이다. 처음 한 번 이 폴더에서 `npm ci`를 실행한다.
+
+로그인은 검사를 실행하는 환경에 있어야 한다. `scan`, `prepare`, `verify`가 **종료 코드 3**(`로그인 필요`)으로 끝나면 아래 순서를 따른다. 설치 직후에는 바로 `scan`을 실행해 로그인이 필요한지 확인한다.
+
+1. 사용자에게 아래의 권한 안내를 하고 로그인해도 되는지 확인한다.
+2. 검사를 실행한 에이전트가 직접, 같은 실행 권한(샌드박스 승인 포함)으로 실행한다.
 
 ```sh
-npm ci
-node scripts/gblc.mjs login
+node <skill>/scripts/gblc.mjs login
 ```
+
+3. 사용자가 브라우저에서 승인하면 중단했던 명령을 다시 실행한다.
+
+데스크톱 앱(Windows의 Codex, Claude 등)은 앱마다 저장 공간이 분리될 수 있다. 다른 에이전트나 터미널에서 이미 로그인했어도 종료 코드 3이 나오면 여기에서 다시 로그인하며, 사용자에게 다른 터미널에서 로그인하라고 안내하지 않는다.
 
 `login` 실행 전에 사용자에게 알린다: 승인하면 이 컴퓨터에 콘텐츠 쓰기, 병합, 게시, 권한 변경까지 가능한 로그인 정보가 저장된다. 이 도구는 조회 요청만 보낸다. 승인은 사용자가 브라우저에서 직접 한다. 명령은 승인될 때까지 기다리므로 백그라운드로 실행한다.
 
-권한을 좁히려면 사용자가 [개발자 설정](https://app.gitbook.com/account/developer)에서 읽기 전용(`Read only`) 토큰을 만들어 자신의 터미널에서 `node node_modules/@gitbook/cli/cli.js auth`를 실행하고 붙여 넣는다. 토큰을 대화로 받지 않는다. 로그아웃은 `node node_modules/@gitbook/cli/cli.js logout`.
+권한을 좁히려면 사용자가 [개발자 설정](https://app.gitbook.com/account/developer)에서 읽기 전용(`Read only`) 토큰을 만들어 자신의 터미널에서 `node node_modules/@gitbook/cli/cli.js auth`를 실행하고 붙여 넣는다. 토큰을 대화로 받지 않는다. 이후에도 종료 코드 3이 나오면 그 터미널의 로그인이 이 환경에서 보이지 않는 것이므로 알리고 브라우저 로그인을 제안한다. 로그아웃은 `node node_modules/@gitbook/cli/cli.js logout`.
 
 ## 2. 검사 (Dry run)
 
@@ -52,7 +62,8 @@ node <skill>/scripts/gblc.mjs scan "<스페이스 URL>" --cr <번호>
 ```
 
 - `--cr` 없이 실행하면 본문 기준으로 보고만 한다. 삭제하려면 `--cr`이 필요하다. 없으면 사용자에게 Change Request 번호를 묻거나 만들어 달라고 한다.
-- 결과는 실행한 위치의 `gblc-reports/<시각>/`에 저장된다.
+- `scan`, `prepare`, `verify`는 사용자의 작업 폴더에서 실행한다. `<skill>` 폴더 안에서 실행하지 않는다.
+- 결과는 실행한 위치의 `gblc-reports/<시각>/`에 저장된다. 실제 문서의 정보가 들어 있으므로 커밋하거나 배포본에 넣지 않는다.
 - 검사 대상: 본문과 모든 미병합 Change Request(초안, 열림, 보관)의 페이지(숨김 포함), 재사용 콘텐츠, 페이지 설정, 같은 조직의 다른 스페이스, 사이트 설정(사이트 안 스페이스별 설정 포함).
 - 파일 ID나 업로드 주소가 어느 원문에든 있으면 "사용 중"으로 본다. 이미지가 아닌 파일은 삭제하지 않는다.
 
@@ -79,7 +90,7 @@ node <skill>/scripts/gblc.mjs prepare --report <report.json> --approve <승인 I
 
 1. 출력된 Change Request의 **Editor** 화면을 열고 왼쪽 **Library > Images**로 들어가 **목록 보기**로 바꾼다. 화면 언어는 영어여야 한다.
 2. 첫 묶음은 `delete.js`의 내용을 그대로 페이지에서 실행한다. 같은 페이지에서 이어지는 묶음은 `next.js`의 내용만 실행한다. `not installed`가 나오면(페이지를 새로 연 경우 등) `delete.js`를 실행한다. 그 밖에 `started: N files`가 아니면 중단한다.
-3. 아래 식을 실행한다. 최대 30초를 기다린 뒤 상태를 돌려주므로 `running`이면 같은 식을 다시 실행한다. `stopped`면 오류를 보고하고 멈춘다. 파일당 약 4초라 50개 묶음은 3~4분이 걸린다.
+3. 아래 식을 실행한다. 최대 30초를 기다린 뒤 상태를 돌려주므로 `running`이면 같은 식을 다시 실행한다. `stopped`면 오류를 보고하고 멈춘다. 파일당 약 4~5초라 50개 묶음은 4분 안팎이 걸린다.
 
 ```js
 await (async () => {
@@ -105,4 +116,4 @@ API 반영에 1분 안팎이 걸려 명령이 기다린다. `검증 통과`면 �
 
 ## 5. 보고
 
-삭제한 개수와 용량, 검증 결과, 남은 파일을 알리고, Change Request의 Changes 화면에서 확인한 뒤 병합은 사용자가 직접 하라고 안내한다. 삭제한 파일의 내용은 GitBook 버전 기록에 남는다고 삭제 확인 창에 안내되지만, 이 도구로 복구해 본 적은 없다.
+삭제한 개수와 용량, 검증 결과, 남은 파일을 알리고, Codex에서 Full CDP access를 켰다면 끄라고 안내하고, Change Request의 Changes 화면에서 확인한 뒤 병합은 사용자가 직접 하라고 안내한다. 삭제한 파일의 내용은 GitBook 버전 기록에 남는다고 삭제 확인 창에 안내되지만, 이 도구로 복구해 본 적은 없다.
