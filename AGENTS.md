@@ -3,7 +3,7 @@
 ## 프로젝트
 
 - **의도**: GitBook 스페이스의 Library에서 어디에서도 참조하지 않는 이미지를 찾아, 승인받은 파일만 Change Request 안에서 삭제하고 검증하는 에이전트 스킬. 동작과 판정 기준은 [README.md](README.md), 에이전트 절차는 [skill/SKILL.md](skill/SKILL.md).
-- **사용자**: 에이전트에게 정리를 맡기는 GitBook 편집자. 다른 사람에게 배포한다. 지원 우선순위는 ChatGPT(Work)·Codex이며, 안 되면 Claude.
+- **사용자**: 에이전트에게 정리를 맡기는 GitBook 편집자. 다른 사람에게 배포한다. 지원 우선순위는 Codex이며, 안 되면 Claude. ChatGPT Work는 지원 대상이 아니다.
 - **성공 기준**: 사용 중인 이미지를 하나도 지우지 않고 미사용 이미지를 정리하며, 사용자는 추가 로그인을 최소한으로 한다.
 - **하지 않을 것**: Change Request 병합, 승인 없는 삭제, 이미지가 아닌 파일의 삭제, Playwright 같은 별도 브라우저 자동화 의존성.
 
@@ -11,9 +11,10 @@
 
 - `skill` 폴더가 배포 단위다. 명령은 `skill` 폴더에서 실행한다: 설치 `npm ci`, 테스트 `npm test`.
 - Node.js 버전은 `.node-version`을 따른다. 배포 대상이 지원해야 하는 최소 버전은 `skill/package.json`의 `engines`다.
-- 판정 로직(`skill/scripts/lib.mjs`)이나 삭제 스크립트를 바꾸면 테스트에 더해 [README.md](README.md)의 "유지보수" 확인을 따른다.
+- 판정 로직(`skill/scripts/lib.mjs`)이나 삭제 스크립트를 바꾸면 테스트에 더해 [docs/maintenance.md](docs/maintenance.md)의 확인을 따른다.
 - 실제 스페이스의 삭제는 사용자가 대상 목록을 승인한 뒤에만 한다.
 - `gblc-reports/`는 실제 문서에서 나온 결과다. 커밋하거나 배포본에 넣지 않는다.
+- 이 저장소에서 Codex로 스킬을 시험할 때는 `.agents/skills/gitbook-library-cleaner`를 `skill` 폴더를 가리키는 링크(Windows는 junction)로 만든다. 이 링크는 커밋하지 않는다.
 
 ## 작업 방식
 

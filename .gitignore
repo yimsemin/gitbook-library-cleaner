@@ -12,5 +12,6 @@ coverage/
 *.key
 .claude/settings.local.json
 .claude/worktrees/
+.agents/
 .DS_Store
 *.log

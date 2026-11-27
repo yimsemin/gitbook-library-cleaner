@@ -18,8 +18,19 @@ description: GitBook 스페이스 Library에서 어디에서도 참조되지 않
 ## 필요한 것
 
 - Node.js 24 이상, 이 폴더에서 로컬 명령 실행
-- GitBook에 로그인한 브라우저를 조작할 수 있고, 페이지에서 JavaScript를 실행할 수 있는 에이전트 도구
+- GitBook에 로그인한 브라우저를 조작할 수 있고, 페이지의 내용을 바꾸는 JavaScript를 실행할 수 있는 에이전트 도구
 - 대상 스페이스의 편집 권한
+
+`scripts/gblc.mjs`와 GitBook CLI는 네트워크와 사용자 홈 폴더의 로그인 정보를 쓴다. 샌드박스가 막으면 우회하지 말고 해당 명령의 실행 승인을 요청한다.
+
+### Codex의 페이지 JavaScript 실행
+
+`playwright.evaluate`는 읽기 전용이므로 삭제 스크립트에 쓰지 않는다. 탭의 `cdp` 기능으로 `Runtime.evaluate`를 보낸다.
+
+- 사용자가 설정의 **Browser > Developer mode > Enable full CDP access**를 켜야 한다. 꺼져 있으면 켜 달라고 요청하고 멈춘다.
+- `delete.js`, `next.js`는 파일을 코드로 읽어 `expression`에 그대로 넣는다. 내용을 옮겨 적지 않는다.
+- 상태 확인 식은 `awaitPromise: true`, `returnByValue: true`, `replMode: true`로 보내고 명령 대기 시간(`timeoutMs`)을 45000으로 둔다.
+- 응답에 `exceptionDetails`가 있으면 중단한다.
 
 ## 1. 준비 (최초 1회)
 
@@ -42,7 +53,7 @@ node <skill>/scripts/gblc.mjs scan "<스페이스 URL>" --cr <번호>
 
 - `--cr` 없이 실행하면 본문 기준으로 보고만 한다. 삭제하려면 `--cr`이 필요하다. 없으면 사용자에게 Change Request 번호를 묻거나 만들어 달라고 한다.
 - 결과는 실행한 위치의 `gblc-reports/<시각>/`에 저장된다.
-- 검사 대상: 본문과 모든 미병합 Change Request(초안, 열림, 보관)의 페이지(숨김 포함), 재사용 콘텐츠, 페이지 설정, 같은 조직의 다른 스페이스, 사이트 설정.
+- 검사 대상: 본문과 모든 미병합 Change Request(초안, 열림, 보관)의 페이지(숨김 포함), 재사용 콘텐츠, 페이지 설정, 같은 조직의 다른 스페이스, 사이트 설정(사이트 안 스페이스별 설정 포함).
 - 파일 ID나 업로드 주소가 어느 원문에든 있으면 "사용 중"으로 본다. 이미지가 아닌 파일은 삭제하지 않는다.
 
 사용자에게 후보 개수, 용량, `candidates.tsv` 경로, 아래 한계를 알리고 승인을 받는다.
