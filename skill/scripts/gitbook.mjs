@@ -76,4 +76,11 @@ export const api = {
   document: (s, d) => get(['spaces', 'documents', 'get', space(s), `--documentId=${d}`]),
   sites: (o) => list(['organizations', 'sites', 'list', org(o)]),
   siteCustomization: (o, site) => get(['organizations', 'sites', 'customization', 'get', org(o), `--siteId=${site}`]),
+  siteSpaces: (o, site) => list(['organizations', 'sites', 'site-spaces', 'list', org(o), `--siteId=${site}`]),
+  siteSpaceCustomization: (o, site, siteSpace) =>
+    get([
+      ...['organizations', 'sites', 'site-spaces', 'customization', 'get', org(o)],
+      `--siteId=${site}`,
+      `--siteSpaceId=${siteSpace}`,
+    ]),
 };

@@ -63,6 +63,21 @@ async function readSpace(spaceId, label) {
   return { ...after, sources, problems, documentCount: documents.size };
 }
 
+/** 사이트 전체 설정과 스페이스별 설정(로고, 파비콘 등)의 참조. */
+async function readSite(organization, site) {
+  const [customization, siteSpaces] = await Promise.all([
+    api.siteCustomization(organization, site.id),
+    api.siteSpaces(organization, site.id),
+  ]);
+  const overrides = await Promise.all(
+    siteSpaces.map(async (siteSpace) => ({
+      label: `사이트 설정: ${site.title} / ${siteSpace.title}`,
+      text: JSON.stringify(await api.siteSpaceCustomization(organization, site.id, siteSpace.id)),
+    })),
+  );
+  return [{ label: `사이트 설정: ${site.title}`, text: JSON.stringify(customization) }, ...overrides];
+}
+
 export async function scan(spaceId, { changeRequest } = {}) {
   // 첫 요청은 단독으로 보내 로그인 갱신이 겹치지 않게 한다.
   const { organization } = await api.space(spaceId);
@@ -76,20 +91,12 @@ export async function scan(spaceId, { changeRequest } = {}) {
   const [target, otherResults, sites] = await Promise.all([
     readSpace(spaceId, ''),
     Promise.all(others.map((other) => readSpace(other.id, `[${other.title}] `))),
-    // 사이트 설정(로고, 파비콘 등)의 참조
-    api.sites(organization).then((list) =>
-      Promise.all(
-        list.map(async (site) => ({
-          label: `사이트 설정: ${site.title}`,
-          text: JSON.stringify(await api.siteCustomization(organization, site.id)),
-        })),
-      ),
-    ),
+    api.sites(organization).then((list) => Promise.all(list.map((site) => readSite(organization, site)))),
   ]);
 
   const { space } = target;
   const results = [target, ...otherResults];
-  const sources = [...results.flatMap((r) => r.sources), ...sites];
+  const sources = [...results.flatMap((r) => r.sources), ...sites.flat()];
   const problems = results.flatMap((r) => r.problems);
   if (listed.length === others.length) problems.push('조직의 스페이스 목록에 대상 스페이스가 없습니다');
 
