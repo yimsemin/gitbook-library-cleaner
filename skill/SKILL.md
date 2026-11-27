@@ -67,10 +67,10 @@ node <skill>/scripts/gblc.mjs scan "<스페이스 URL>" --cr <번호>
 
 ## 3. 삭제
 
-`prepare`는 첫 묶음에만 실행하며, `--batch`로 정한 크기는 이후 묶음에도 적용된다. 이 컴퓨터에서 처음 삭제한다면 `--batch 2`로 한 묶음을 삭제하고 `--next` 없이 검증한 뒤, `--batch 20`으로 `prepare`를 다시 실행한다.
+`prepare`는 첫 묶음에만 실행하며, `--batch`로 정한 크기는 이후 묶음에도 적용된다. 기본 크기는 50개다. 이 컴퓨터에서 처음 삭제한다면 `--batch 2`로 한 묶음을 삭제하고 `--next` 없이 검증한 뒤, `--batch` 없이 `prepare`를 다시 실행한다.
 
 ```sh
-node <skill>/scripts/gblc.mjs prepare --report <report.json> --approve <승인 ID> --batch 20
+node <skill>/scripts/gblc.mjs prepare --report <report.json> --approve <승인 ID>
 ```
 
 `prepare`는 전체를 다시 검사하고, 승인 후 참조가 생긴 파일이 있으면 중단한다. 일부만 승인받았다면 `--only <파일ID,파일ID>`를 붙인다. 스크립트와 `pending.json`은 보고서 폴더에 저장된다.
@@ -79,7 +79,7 @@ node <skill>/scripts/gblc.mjs prepare --report <report.json> --approve <승인 I
 
 1. 출력된 Change Request의 **Editor** 화면을 열고 왼쪽 **Library > Images**로 들어가 **목록 보기**로 바꾼다. 화면 언어는 영어여야 한다.
 2. 첫 묶음은 `delete.js`의 내용을 그대로 페이지에서 실행한다. 같은 페이지에서 이어지는 묶음은 `next.js`의 내용만 실행한다. `not installed`가 나오면(페이지를 새로 연 경우 등) `delete.js`를 실행한다. 그 밖에 `started: N files`가 아니면 중단한다.
-3. 아래 식을 실행한다. 최대 30초를 기다린 뒤 상태를 돌려주므로 `running`이면 같은 식을 다시 실행한다. `stopped`면 오류를 보고하고 멈춘다. 20개 묶음은 80초 안팎이 걸린다.
+3. 아래 식을 실행한다. 최대 30초를 기다린 뒤 상태를 돌려주므로 `running`이면 같은 식을 다시 실행한다. `stopped`면 오류를 보고하고 멈춘다. 파일당 약 4초라 50개 묶음은 3~4분이 걸린다.
 
 ```js
 await (async () => {

@@ -133,7 +133,7 @@ async function runPrepare(values) {
     report: resolve(values.report),
     approve: values.approve,
     only: values.only,
-    batch: integerOption(values.batch, 'batch', { fallback: 20, min: 1 }),
+    batch: integerOption(values.batch, 'batch', { fallback: 50, min: 1 }),
   };
   const { report } = loadApproval(request); // 검사 전에 승인부터 확인한다.
   writeBatch(request, await scan(report.space.id, { changeRequest: report.changeRequest.number }));
