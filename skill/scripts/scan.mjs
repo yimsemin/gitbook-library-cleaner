@@ -1,6 +1,6 @@
 // 참조 관계 전체 검사. 읽기 전용.
 import { api } from './gitbook.mjs';
-import { classify, collectDocuments, revisionText } from './lib.mjs';
+import { allPages, classify, collectDocuments, revisionText } from './lib.mjs';
 
 const PROTECTED_STATUSES = ['draft', 'open', 'archived']; // 병합되지 않은 Change Request
 
@@ -30,13 +30,7 @@ async function readSpace(spaceId, label) {
     sources.push({ label: `${where}: 페이지 설정`, text: revisionText(revision) });
     const found = collectDocuments(revision);
     problems.push(...found.problems.map((p) => `${where}: ${p}`));
-    const titles = new Map();
-    const walk = (pages) =>
-      (pages ?? []).forEach((p) => {
-        if (p.documentId) titles.set(p.documentId, p.title);
-        walk(p.pages);
-      });
-    walk(revision.pages);
+    const titles = new Map([...allPages(revision.pages)].map((p) => [p.documentId, p.title]));
     for (const id of found.documents) {
       if (!documents.has(id)) documents.set(id, `${where}: ${titles.get(id) ?? '재사용 콘텐츠'}`);
     }

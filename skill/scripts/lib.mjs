@@ -28,24 +28,28 @@ export function revisionText(revision) {
   return JSON.stringify(rest);
 }
 
+/** 중첩된 페이지까지 문서 순서대로 훑는다. */
+export function* allPages(pages) {
+  for (const page of pages ?? []) {
+    yield page;
+    yield* allPages(page.pages);
+  }
+}
+
 /** 문서 ID를 수집한다. 내용을 읽을 수 없는 항목은 problems에 남긴다. */
 export function collectDocuments(revision) {
   const documents = [];
   const problems = [];
-  const walk = (pages) => {
-    for (const page of pages ?? []) {
-      if (page.type === 'document') {
-        // 빈 페이지는 documentId가 없다.
-        if (page.documentId) documents.push(page.documentId);
-        if (page.computed) problems.push(`computed page: ${page.title}`);
-      } else if (page.type !== 'group' && page.type !== 'link') {
-        problems.push(`unsupported page type "${page.type}": ${page.title}`);
-      }
-      walk(page.pages);
-    }
-  };
   if (!Array.isArray(revision.pages)) problems.push('revision has no page list');
-  walk(revision.pages);
+  for (const page of allPages(revision.pages)) {
+    if (page.type === 'document') {
+      // 빈 페이지는 documentId가 없다.
+      if (page.documentId) documents.push(page.documentId);
+      if (page.computed) problems.push(`computed page: ${page.title}`);
+    } else if (page.type !== 'group' && page.type !== 'link') {
+      problems.push(`unsupported page type "${page.type}": ${page.title}`);
+    }
+  }
   for (const content of revision.reusableContents ?? []) {
     if (content.computed) problems.push(`computed reusable content: ${content.title}`);
     else if (content.document) documents.push(content.document);
@@ -53,18 +57,17 @@ export function collectDocuments(revision) {
   return { documents, problems };
 }
 
-/**
- * sources: [{ label, text }]
- * 파일 ID 또는 업로드 키가 어느 원문에든 나타나면 참조된 것으로 본다.
- */
+/** 파일 ID 또는 업로드 키가 풀어낸 원문(decodeDeep)에 나타나면 참조된 것으로 본다. */
+export function refers({ id, uploadKey }, text) {
+  return [id, uploadKey].some((needle) => needle && text.includes(needle));
+}
+
+/** sources: [{ label, text }] */
 export function classify(files, sources) {
   const decoded = sources.map((s) => ({ label: s.label, text: decodeDeep(s.text) }));
   return files.map((file) => {
     const key = uploadKey(file.downloadURL);
-    const needles = [file.id, key].filter(Boolean);
-    const referencedBy = decoded
-      .filter((s) => needles.some((n) => s.text.includes(n)))
-      .map((s) => s.label);
+    const referencedBy = decoded.filter((s) => refers({ id: file.id, uploadKey: key }, s.text)).map((s) => s.label);
     let status;
     if (referencedBy.length) status = 'referenced';
     else if (!String(file.contentType).startsWith('image/')) status = 'not-image';

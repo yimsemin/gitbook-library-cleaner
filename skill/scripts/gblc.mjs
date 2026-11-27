@@ -11,6 +11,7 @@ import {
   integerOption,
   parseSpace,
   planId,
+  refers,
   selectBatch,
 } from './lib.mjs';
 import { login } from './login.mjs';
@@ -152,8 +153,8 @@ async function runVerify(values) {
   for (const source of fresh.sources) {
     const text = decodeDeep(source.text);
     for (const f of gone) {
-      // 본문은 삭제 전 상태이므로 참조가 있으면 안 되는 것은 마찬가지다.
-      if (text.includes(f.id) || text.includes(f.uploadKey)) broken.push(`${f.name} ← ${source.label}`);
+      // 본문은 아직 병합 전이어도, 삭제한 파일을 참조하면 병합 뒤에 깨진다.
+      if (refers(f, text)) broken.push(`${f.name} ← ${source.label}`);
     }
   }
   const mainFiles = new Set(fresh.mainFileIds);
