@@ -17,7 +17,7 @@ description: GitBook 스페이스 Library에서 어디에서도 참조되지 않
 
 ## 필요한 것
 
-- Node.js 22 이상, 이 폴더에서 로컬 명령 실행
+- Node.js 24 이상, 이 폴더에서 로컬 명령 실행
 - GitBook에 로그인한 브라우저를 조작할 수 있고, 페이지에서 JavaScript를 실행할 수 있는 에이전트 도구
 - 대상 스페이스의 편집 권한
 
