@@ -36,7 +36,8 @@ test('reference by file ID or by (doubly encoded) URL protects the file', () => 
   const files = [file('fileA', 'KEYA'), file('fileB', 'KEYB'), file('fileC', 'KEYC')];
   const texts = [
     JSON.stringify({ ref: { kind: 'file', file: 'fileA' } }),
-    JSON.stringify({ url: encodeURIComponent(files[1].downloadURL) }),
+    // 파일 ID 없이 업로드 키만 남은 주소
+    JSON.stringify({ url: encodeURIComponent(encodeURIComponent('spaces/SPACE/uploads/KEYB/renamed.webp')) }),
   ];
   assert.deepEqual(statuses(files, texts), ['referenced', 'referenced', 'unused']);
 });
@@ -117,6 +118,69 @@ test('the browser script refuses other change requests, the diff view and a clos
   assert.match(run('/o/O/s/SPACE/~/edit/~/changes/121/'), /not the target/);
   assert.match(run('/o/O/s/SPACE/~/diff/~/changes/12/'), /not the target/);
   assert.match(run('/o/O/s/SPACE/~/edit/~/changes/12/'), /open Library/);
+});
+
+// Library 화면의 최소 모형. 삭제 스크립트가 보는 요소만 흉내 낸다.
+function library(rowIds, { dialogName } = {}) {
+  const [{ name }] = job.files;
+  const state = { menu: false, dialog: null, deleted: [] };
+  const rows = rowIds.map((id) => {
+    const button = { click: () => (state.menu = id) };
+    const row = { querySelectorAll: () => [button] };
+    return { id, children: [], textContent: name, __reactFiber$: { memoizedProps: { file: { id } } }, closest: () => row };
+  });
+  const confirm = {
+    textContent: 'Delete',
+    click: () => {
+      state.deleted.push(state.menu);
+      rows.splice(rows.findIndex((r) => r.id === state.menu), 1);
+      state.dialog = null;
+    },
+  };
+  const item = {
+    textContent: 'Delete',
+    click: () => {
+      state.dialog = { textContent: `Delete "${dialogName ?? name}"?`, querySelectorAll: () => [confirm] };
+    },
+  };
+  const search = { dispatchEvent() {} };
+  const context = createContext({
+    window: {},
+    location: { hostname: 'app.gitbook.com', pathname: '/o/O/s/SPACE/~/changes/12/' },
+    document: {
+      querySelector: (selector) => (selector.startsWith('input') ? search : state.dialog),
+      querySelectorAll: (selector) => (selector === '[data-index] *' ? [...rows] : state.menu ? [item] : []),
+    },
+    HTMLInputElement: { prototype: Object.defineProperty({}, 'value', { set() {} }) },
+    Event: class {},
+    setTimeout: (resolve) => setImmediate(resolve),
+  });
+  return { context, state };
+}
+
+async function runInLibrary(rowIds, options) {
+  const { context, state } = library(rowIds, options);
+  runInContext(browserScripts(template, job).delete, context);
+  while (context.window.__gblc.state === 'running') await new Promise((r) => setImmediate(r));
+  return { ...context.window.__gblc, deleted: state.deleted };
+}
+
+test('the browser script deletes only the row with the approved file ID', async () => {
+  const result = await runInLibrary(['other', 'f1']);
+  assert.equal(result.state, 'finished');
+  assert.deepEqual(result.deleted, ['f1']);
+});
+
+test('the browser script deletes nothing when rows are ambiguous or the dialog names another file', async () => {
+  for (const [rowIds, options, error] of [
+    [['f1', 'f1'], {}, /ambiguous rows/],
+    [['f1'], { dialogName: 'other.webp' }, /dialog mismatch/],
+  ]) {
+    const result = await runInLibrary(rowIds, options);
+    assert.equal(result.state, 'stopped');
+    assert.match(result.error, error);
+    assert.deepEqual(result.deleted, []);
+  }
 });
 
 test('job data is embedded unchanged', () => {
