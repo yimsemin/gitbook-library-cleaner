@@ -40,18 +40,18 @@ export function* allPages(pages) {
 export function collectDocuments(revision) {
   const documents = [];
   const problems = [];
-  if (!Array.isArray(revision.pages)) problems.push('revision has no page list');
+  if (!Array.isArray(revision.pages)) problems.push('페이지 목록이 없습니다');
   for (const page of allPages(revision.pages)) {
     if (page.type === 'document') {
       // 빈 페이지는 documentId가 없다.
       if (page.documentId) documents.push(page.documentId);
-      if (page.computed) problems.push(`computed page: ${page.title}`);
+      if (page.computed) problems.push(`자동 생성 페이지: ${page.title}`);
     } else if (page.type !== 'group' && page.type !== 'link') {
-      problems.push(`unsupported page type "${page.type}": ${page.title}`);
+      problems.push(`읽을 수 없는 페이지 형식 "${page.type}": ${page.title}`);
     }
   }
   for (const content of revision.reusableContents ?? []) {
-    if (content.computed) problems.push(`computed reusable content: ${content.title}`);
+    if (content.computed) problems.push(`자동 생성 재사용 콘텐츠: ${content.title}`);
     else if (content.document) documents.push(content.document);
   }
   return { documents, problems };

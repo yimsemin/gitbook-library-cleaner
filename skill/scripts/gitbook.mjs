@@ -22,7 +22,9 @@ function run(args) {
       const stdout = Buffer.concat(out).toString('utf8');
       if (code === 0) return resolve(stdout);
       const message = (Buffer.concat(err).toString('utf8') || stdout).trim().slice(0, 500);
-      reject(new Error(`gitbook ${args.join(' ')} 실패 (${code ?? 'timeout'}): ${message}`));
+      const error = new Error(`gitbook ${args.join(' ')} 실패 (${code ?? 'timeout'}): ${message}`);
+      // 재시도 여부는 명령 인자(ID)를 뺀 CLI 출력만 보고 정한다.
+      reject(Object.assign(error, { output: message }));
     });
   });
 }
@@ -33,7 +35,7 @@ async function withRetry(args) {
       const stdout = await run([...args, '--json']);
       return JSON.parse(stdout);
     } catch (error) {
-      if (attempt >= 3 || /authenticated|unknown option|401|403|404/i.test(error.message)) throw error;
+      if (attempt >= 3 || /authenticated|unknown option|\b(401|403|404)\b/i.test(error.output)) throw error;
       await new Promise((r) => setTimeout(r, attempt * 3000));
     }
   }

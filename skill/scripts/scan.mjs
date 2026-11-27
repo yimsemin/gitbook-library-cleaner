@@ -43,7 +43,7 @@ async function readSpace(spaceId, label) {
   // 같은 문서의 출처 표시가 실행마다 같도록 정해진 순서로 추가한다.
   addRevision(main, `${label}본문`);
   before.changeRequests.forEach((cr, i) => {
-    const where = `${label}CR #${cr.number}`;
+    const where = `${label}Change Request #${cr.number}`;
     sources.push({ label: `${where}: 설명`, text: JSON.stringify(cr.description ?? null) });
     addRevision(requests[i], where);
   });
@@ -97,7 +97,7 @@ export async function scan(spaceId, { changeRequest } = {}) {
   if (changeRequest !== undefined) {
     targetCR = target.changeRequests.find((c) => String(c.number) === String(changeRequest));
     if (!targetCR || !['draft', 'open'].includes(targetCR.status)) {
-      throw new Error(`Change Request #${changeRequest}은 초안 또는 열린 상태가 아닙니다`);
+      throw new Error(`초안 또는 열린 상태의 Change Request가 아닙니다: #${changeRequest}`);
     }
   }
 

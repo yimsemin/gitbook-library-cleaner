@@ -152,7 +152,7 @@ skill/
 | `refused: open Library > Images first` | Images 목록이 열려 있는지, 검색창 선택자 |
 | `timeout: row for …` | 목록 보기인지, 행 구조와 파일 ID 위치 |
 | `timeout: Delete menu item`, `confirm dialog` | 메뉴와 확인 창의 문구·구조 (`browser-delete.js`) |
-| `unsupported page type`, `computed page` | `lib.mjs`의 `collectDocuments` |
+| `읽을 수 없는 페이지 형식`, `자동 생성 페이지` | `lib.mjs`의 `collectDocuments` |
 | CLI 명령 실패 | `gitbook.mjs`, CLI 버전 |
 
 코드를 고친 뒤 `skill` 폴더에서 `npm test`를 실행하고, `--batch 2`로 삭제와 검증을 다시 확인합니다. `npm audit`은 GitBook CLI의 의존 패키지에 대한 취약점을 보고합니다. CLI 버전을 올릴 때 함께 확인합니다.

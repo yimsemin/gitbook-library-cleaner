@@ -36,8 +36,8 @@ function summarize(result) {
   const c = result.coverage;
   return [
     `스페이스: ${result.space.title}`,
-    `기준: ${result.changeRequest ? `CR #${result.changeRequest.number} (${result.changeRequest.subject})` : '본문'}`,
-    `검사 범위: 문서 ${c.documents}개, 미병합 CR ${c.unmergedChangeRequests.join(', ') || '없음'}, 다른 스페이스 ${c.otherSpaces}개, 사이트 ${c.sites}개`,
+    `기준: ${result.changeRequest ? `Change Request #${result.changeRequest.number} (${result.changeRequest.subject})` : '본문'}`,
+    `검사 범위: 문서 ${c.documents}개, 미병합 Change Request ${c.unmergedChangeRequests.map((n) => `#${n}`).join(', ') || '없음'}, 다른 스페이스 ${c.otherSpaces}개, 사이트 ${c.sites}개`,
     line('unused', '삭제 후보(미사용 이미지)'),
     line('referenced', '사용 중'),
     line('uncertain', '불확실(삭제 안 함)'),
@@ -112,8 +112,8 @@ function writeBatch(request, fresh) {
     mainFileIds: fresh.mainFileIds,
     changeRequestFileIds: fresh.files.map((f) => f.id),
   });
-  console.log(`다음 묶음: ${batch.length}개, ${formatBytes(sum(batch))} (남은 승인 파일 ${remaining}개)`);
-  console.log(`CR 편집 화면: ${report.changeRequest.url}`);
+  console.log(`이번에 삭제할 묶음: ${batch.length}개, ${formatBytes(sum(batch))} (남은 승인 파일 ${remaining}개)`);
+  console.log(`Change Request 주소: ${report.changeRequest.url}`);
   console.log(`스크립트 폴더: ${out} (처음이거나 페이지를 새로 열었으면 delete.js, 아니면 next.js)`);
 }
 
