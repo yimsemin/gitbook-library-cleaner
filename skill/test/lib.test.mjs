@@ -15,6 +15,7 @@ import {
   revisionText,
   selectBatch,
   uploadKey,
+  verifyQuota,
 } from '../scripts/lib.mjs';
 
 const file = (id, key, extra = {}) => ({
@@ -205,6 +206,15 @@ test('the next batch skips deleted files and stops when an approved file became 
   // 이번 묶음 밖의 파일이 바뀌어도 중단한다.
   const changed = [...unused('a', 'b'), { id: 'c', status: 'referenced' }];
   assert.throws(() => selectBatch(approved, changed, 1), /c/);
+});
+
+test('a batch is refused only when the quota cannot cover its verification', () => {
+  const short = (remaining, now = 0) =>
+    verifyQuota({ requests: 231, rateLimit: { remaining, reset: 10 } }, 143, now).short;
+  assert.equal(short(268), true);
+  assert.equal(short(269), false);
+  assert.equal(short(0, 10_000), false); // 이미 초기화됨
+  assert.equal(verifyQuota({ requests: 231, rateLimit: null }, 143).short, false);
 });
 
 test('the limiter caps concurrency and starts nothing new after a failure', async () => {

@@ -1,10 +1,10 @@
 // 참조 관계 전체 검사. 읽기 전용.
-import { api } from './gitbook.mjs';
+import { api as gitbook } from './gitbook.mjs';
 import { allPages, classify, collectDocuments, revisionText } from './lib.mjs';
 
 const PROTECTED_STATUSES = ['draft', 'open', 'archived']; // 병합되지 않은 Change Request
 
-async function snapshot(spaceId) {
+async function snapshot(api, spaceId) {
   const [space, ...lists] = await Promise.all([
     api.space(spaceId),
     ...PROTECTED_STATUSES.map((status) => api.changeRequests(spaceId, status)),
@@ -20,8 +20,8 @@ function fingerprint({ space, changeRequests }) {
 }
 
 /** 한 스페이스의 본문과 미병합 Change Request를 모두 읽는다. */
-async function readSpace(spaceId, label) {
-  const before = await snapshot(spaceId);
+async function readSpace(api, spaceId, label) {
+  const before = await snapshot(api, spaceId);
   const sources = [];
   const problems = [];
   const documents = new Map(); // documentId -> label
@@ -56,7 +56,7 @@ async function readSpace(spaceId, label) {
     }),
   );
 
-  const after = await snapshot(spaceId);
+  const after = await snapshot(api, spaceId);
   if (fingerprint(before) !== fingerprint(after)) {
     problems.push(`${label || '대상 스페이스'}: 검사 중에 내용이 바뀌었습니다`);
   }
@@ -64,7 +64,7 @@ async function readSpace(spaceId, label) {
 }
 
 /** 사이트 전체 설정과 스페이스별 설정(로고, 파비콘 등)의 참조. */
-async function readSite(organization, site) {
+async function readSite(api, organization, site) {
   const [customization, siteSpaces] = await Promise.all([
     api.siteCustomization(organization, site.id),
     api.siteSpaces(organization, site.id),
@@ -78,8 +78,9 @@ async function readSite(organization, site) {
   return [{ label: `사이트 설정: ${site.title}`, text: JSON.stringify(customization) }, ...overrides];
 }
 
-export async function scan(spaceId, { changeRequest } = {}) {
-  // 첫 요청은 단독으로 보내 로그인 갱신이 겹치지 않게 한다.
+export async function scan(spaceId, { changeRequest, api = gitbook } = {}) {
+  const { requests: requestsBefore } = api.usage();
+  // 조직을 알아야 나머지 검사 범위를 정할 수 있다.
   const { organization } = await api.space(spaceId);
 
   // 같은 조직의 다른 스페이스가 이 스페이스의 파일을 참조할 수 있다.
@@ -89,9 +90,9 @@ export async function scan(spaceId, { changeRequest } = {}) {
     .filter((s) => s.id !== spaceId);
 
   const [target, otherResults, sites] = await Promise.all([
-    readSpace(spaceId, ''),
-    Promise.all(others.map((other) => readSpace(other.id, `[${other.title}] `))),
-    api.sites(organization).then((list) => Promise.all(list.map((site) => readSite(organization, site)))),
+    readSpace(api, spaceId, ''),
+    Promise.all(others.map((other) => readSpace(api, other.id, `[${other.title}] `))),
+    api.sites(organization).then((list) => Promise.all(list.map((site) => readSite(api, organization, site)))),
   ]);
 
   const { space } = target;
@@ -132,7 +133,8 @@ export async function scan(spaceId, { changeRequest } = {}) {
     problems,
     mainFileIds: mainFiles.map((f) => f.id),
     files,
-    // 참조 오류 검증에 쓰는 원문. 보고서에는 저장하지 않는다.
+    // 아래 둘(참조 오류 검증에 쓰는 원문, 이번 검사의 API 사용량)은 보고서에 저장하지 않는다.
     sources,
+    usage: { requests: api.usage().requests - requestsBefore, rateLimit: api.usage().rateLimit },
   };
 }

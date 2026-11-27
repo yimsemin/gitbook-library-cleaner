@@ -13,6 +13,7 @@ import {
   planId,
   refers,
   selectBatch,
+  verifyQuota,
 } from './lib.mjs';
 import { login } from './login.mjs';
 import { scan } from './scan.mjs';
@@ -56,7 +57,7 @@ async function runScan(input, values) {
 
   const candidates = result.files.filter((f) => f.status === 'unused').sort((a, b) => a.name.localeCompare(b.name));
   const approval = planId(spaceId, result.changeRequest?.id, candidates.map((f) => f.id));
-  const { sources, ...report } = result;
+  const { sources, usage, ...report } = result;
   writeJSON(join(out, 'report.json'), { ...report, planId: approval });
   writeFileSync(
     join(out, 'candidates.tsv'),
@@ -92,6 +93,15 @@ function writeBatch(request, fresh) {
   if (!fresh.complete) throw new Error(`재검사 불완전: ${fresh.problems.join(' / ')}`);
   const { batch, remaining } = selectBatch(approved, fresh.files, request.batch);
   if (!batch.length) return console.log('삭제할 파일이 남아 있지 않습니다.');
+  // 삭제한 뒤 검증하지 못하는 상황을 피한다.
+  const { rateLimit } = fresh.usage;
+  const quota = verifyQuota(fresh.usage, fresh.files.length);
+  if (quota.short) {
+    const resetAt = new Date(rateLimit.reset * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    throw new Error(
+      `API 호출이 ${rateLimit.remaining}건 남아 다음 검증(약 ${quota.needed}건)에 부족하므로 삭제 묶음을 만들지 않았습니다. ${resetAt} 이후에 prepare를 다시 실행하세요.`,
+    );
+  }
 
   const out = dirname(resolve(request.report));
   const job = {
@@ -113,6 +123,7 @@ function writeBatch(request, fresh) {
     changeRequestFileIds: fresh.files.map((f) => f.id),
   });
   console.log(`이번에 삭제할 묶음: ${batch.length}개, ${formatBytes(sum(batch))} (남은 승인 파일 ${remaining}개)`);
+  if (rateLimit) console.log(`API 호출: ${rateLimit.remaining}건 남음, 다음 검증에 약 ${quota.needed}건`);
   console.log(`Change Request 주소: ${report.changeRequest.url}`);
   console.log(`스크립트 폴더: ${out} (처음이거나 페이지를 새로 열었으면 delete.js, 아니면 next.js)`);
 }

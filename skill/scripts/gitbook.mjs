@@ -1,86 +1,162 @@
-// 공식 GitBook CLI를 통한 읽기 전용 조회. 로그인 정보는 CLI가 관리한다.
+// GitBook API 읽기 전용 조회. 로그인 정보는 공식 CLI가 보관하고 갱신하며, 조회는 이 프로세스에서 직접 보낸다.
 import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { limiter } from './lib.mjs';
 
 export const CLI = fileURLToPath(new URL('../node_modules/@gitbook/cli/cli.js', import.meta.url));
+const CAPTURE = new URL('./capture-auth.mjs', import.meta.url).href;
 
-// 동시에 실행하는 CLI 프로세스 수. 호출하는 쪽은 마음껏 병렬로 요청한다.
-const limited = limiter(10);
+const CONCURRENCY = 10; // 동시에 보내는 요청 수. 호출하는 쪽은 마음껏 병렬로 요청한다.
+const ATTEMPTS = 3;
+const MAX_WAIT_MS = 60_000; // 호출 제한이 이보다 늦게 풀리면 기다리지 않고 끝낸다.
 
-function run(args) {
+/**
+ * CLI의 `whoami`를 실행해, 필요하면 로그인을 갱신한 CLI가 쓰는 API 주소와 인증 값을 받는다.
+ * 인증 값은 메모리에만 두고, CLI의 표준 출력(계정 정보)은 버린다.
+ */
+function cliCredentials() {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [CLI, ...args], { windowsHide: true });
-    const out = [];
+    const child = spawn(process.execPath, ['--import', CAPTURE, CLI, 'whoami', '--json'], {
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+      windowsHide: true,
+    });
+    let credentials;
     const err = [];
     const timer = setTimeout(() => child.kill(), 90_000);
-    child.stdout.on('data', (d) => out.push(d));
-    child.stderr.on('data', (d) => err.push(d));
+    child.on('message', (message) => (credentials = message));
+    child.stderr.on('data', (data) => err.push(data));
     child.on('error', reject);
-    child.on('close', (code) => {
+    child.on('close', () => {
       clearTimeout(timer);
-      const stdout = Buffer.concat(out).toString('utf8');
-      if (code === 0) return resolve(stdout);
-      const message = (Buffer.concat(err).toString('utf8') || stdout).trim().slice(0, 500);
-      const error = new Error(`gitbook ${args.join(' ')} 실패 (${code ?? 'timeout'}): ${message}`);
-      // 재시도 여부는 명령 인자(ID)를 뺀 CLI 출력만 보고 정한다.
-      reject(Object.assign(error, { output: message }));
+      if (credentials) return resolve(credentials);
+      const detail = Buffer.concat(err).toString('utf8').trim().slice(0, 500);
+      reject(new Error(`GitBook 로그인 정보가 없습니다. \`gblc.mjs login\`을 실행하세요. ${detail}`.trim()));
     });
   });
 }
 
-async function withRetry(args) {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const stdout = await run([...args, '--json']);
-      return JSON.parse(stdout);
-    } catch (error) {
-      if (attempt >= 3 || /authenticated|unknown option|\b(401|403|404)\b/i.test(error.output)) throw error;
-      await new Promise((r) => setTimeout(r, attempt * 3000));
+/** 호출 제한 응답이 알려 주는 대기 시간. 알려 주지 않으면 null. */
+function rateLimitWait(headers) {
+  const after = Number(headers.get('retry-after') ?? NaN);
+  if (Number.isFinite(after)) return after * 1000;
+  const reset = Number(headers.get('x-ratelimit-reset') ?? NaN);
+  return Number.isFinite(reset) ? Math.max(reset * 1000 - Date.now(), 0) + 1000 : null;
+}
+
+/** 인자는 테스트에서만 바꾼다. */
+export function createClient({ credentials = cliCredentials, fetch = globalThis.fetch, sleep = delay } = {}) {
+  const limited = limiter(CONCURRENCY);
+  let session = null; // 동시에 시작한 요청들이 로그인 확인 한 번을 같이 쓴다.
+  let sent = 0;
+  let rateLimit = null; // 응답이 알려 준 { remaining, reset(초) }
+
+  async function login() {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await credentials();
+      } catch (error) {
+        if (attempt >= ATTEMPTS) throw error;
+        await sleep(attempt * 3000);
+      }
     }
   }
+
+  /** 응답은 보낸 순서와 다르게 도착하므로, 같은 제한 구간에서는 가장 적게 남은 값을 둔다. */
+  function track(headers) {
+    const remaining = Number(headers.get('x-ratelimit-remaining') ?? NaN);
+    const reset = Number(headers.get('x-ratelimit-reset') ?? NaN);
+    if (!Number.isFinite(remaining) || !Number.isFinite(reset)) return;
+    const newer = !rateLimit || reset > rateLimit.reset;
+    if (newer || (reset === rateLimit.reset && remaining < rateLimit.remaining)) rateLimit = { remaining, reset };
+  }
+
+  async function request(path) {
+    let renewed = false;
+    for (let attempt = 1; ; attempt++) {
+      const current = (session ??= login());
+      const { endpoint, authorization } = await current;
+      let response;
+      let detail;
+      try {
+        sent++;
+        response = await fetch(`${endpoint}/v1/${path}`, {
+          headers: { authorization, 'user-agent': 'gitbook-library-cleaner' },
+          signal: AbortSignal.timeout(60_000),
+        });
+        track(response.headers);
+        if (response.ok) {
+          const body = await response.json();
+          if (body && typeof body === 'object') return body;
+          detail = '응답 형식이 예상과 다릅니다';
+        } else {
+          detail = (await response.text()).slice(0, 500);
+        }
+      } catch (error) {
+        detail = error.cause?.message ?? error.message;
+      }
+      const status = response?.status;
+      // 실행 중에 만료된 로그인은 CLI로 한 번 갱신한다.
+      if (status === 401 && !renewed) {
+        renewed = true;
+        if (session === current) session = null;
+        attempt--;
+        continue;
+      }
+      // 연결 실패, 읽다 끊긴 응답, 호출 제한, 서버 오류만 다시 시도한다.
+      const temporary = !status || response.ok || status === 429 || status >= 500;
+      const wait = (status === 429 && rateLimitWait(response.headers)) || attempt * 3000;
+      if (!temporary || attempt >= ATTEMPTS || wait > MAX_WAIT_MS) {
+        const hint = status === 429 ? ` (호출 제한: ${Math.ceil(wait / 60_000)}분 뒤에 다시 실행하세요)` : '';
+        const error = new Error(`GitBook 조회 실패 (${status ?? '연결 실패'})${hint}: ${path}: ${detail}`);
+        throw Object.assign(error, { status });
+      }
+      await sleep(wait);
+    }
+  }
+
+  // 재시도까지 실패한 요청이 나오면 남은 요청은 시작하지 않는다.
+  const get = (path) => limited(() => request(path));
+
+  /** 목록 조회는 마지막 페이지까지 읽는다. */
+  async function list(path, query = {}) {
+    const items = [];
+    const seen = new Set();
+    let page;
+    do {
+      const params = new URLSearchParams({ ...query, limit: '100', ...(page ? { page } : {}) });
+      const result = await get(`${path}?${params}`);
+      if (!Array.isArray(result.items)) throw new Error(`목록 형식이 예상과 다릅니다: ${path}`);
+      items.push(...result.items);
+      page = result.next?.page;
+      if (page && seen.has(page)) throw new Error(`목록 페이지가 반복됩니다: ${path}`);
+      seen.add(page);
+    } while (page);
+    return items;
+  }
+
+  const id = encodeURIComponent;
+  const space = (s) => `spaces/${id(s)}`;
+  const changeRequest = (s, c) => `${space(s)}/change-requests/${id(c)}`;
+  const org = (o) => `orgs/${id(o)}`;
+  const site = (o, s) => `${org(o)}/sites/${id(s)}`;
+
+  return {
+    /** 지금까지 보낸 조회 요청 수와 마지막으로 확인한 호출 제한. */
+    usage: () => ({ requests: sent, rateLimit }),
+    space: (s) => get(space(s)),
+    spaces: (o) => list(`${org(o)}/spaces`),
+    mainRevision: (s) => get(`${space(s)}/content`),
+    mainFiles: (s) => list(`${space(s)}/content/files`),
+    changeRequests: (s, status) => list(`${space(s)}/change-requests`, { status }),
+    changeRequestRevision: (s, c) => get(`${changeRequest(s, c)}/content`),
+    changeRequestFiles: (s, c) => list(`${changeRequest(s, c)}/content/files`),
+    document: (s, d) => get(`${space(s)}/documents/${id(d)}`),
+    sites: (o) => list(`${org(o)}/sites`),
+    siteCustomization: (o, s) => get(`${site(o, s)}/customization`),
+    siteSpaces: (o, s) => list(`${site(o, s)}/site-spaces`),
+    siteSpaceCustomization: (o, s, siteSpace) => get(`${site(o, s)}/site-spaces/${id(siteSpace)}/customization`),
+  };
 }
 
-// 재시도까지 실패한 요청이 나오면 남은 요청은 시작하지 않는다.
-const get = (args) => limited(() => withRetry(args));
-
-/** 목록 조회는 마지막 페이지까지 읽는다. */
-async function list(args) {
-  const items = [];
-  const seen = new Set();
-  let page;
-  do {
-    const result = await get([...args, '--limit', '100', ...(page ? ['--page', page] : [])]);
-    if (!Array.isArray(result.items)) throw new Error(`목록 형식이 예상과 다릅니다: ${args.join(' ')}`);
-    items.push(...result.items);
-    page = result.next?.page;
-    if (page && seen.has(page)) throw new Error(`목록 페이지가 반복됩니다: ${args.join(' ')}`);
-    seen.add(page);
-  } while (page);
-  return items;
-}
-
-// ID가 `-`로 시작할 수 있어 항상 `--이름=값` 형태로 넘긴다.
-const space = (s) => `--spaceId=${s}`;
-const request = (c) => `--changeRequestId=${c}`;
-const org = (o) => `--organizationId=${o}`;
-
-export const api = {
-  space: (s) => get(['spaces', 'get', space(s)]),
-  spaces: (o) => list(['spaces', 'list', `--organization=${o}`]),
-  mainRevision: (s) => get(['spaces', 'content', 'list', space(s)]),
-  mainFiles: (s) => list(['spaces', 'content', 'files', 'list', space(s)]),
-  changeRequests: (s, status) => list(['spaces', 'change-requests', 'list', space(s), '--status', status]),
-  changeRequestRevision: (s, c) => get(['spaces', 'change-requests', 'content', 'list', space(s), request(c)]),
-  changeRequestFiles: (s, c) => list(['spaces', 'change-requests', 'content', 'files', 'list', space(s), request(c)]),
-  document: (s, d) => get(['spaces', 'documents', 'get', space(s), `--documentId=${d}`]),
-  sites: (o) => list(['organizations', 'sites', 'list', org(o)]),
-  siteCustomization: (o, site) => get(['organizations', 'sites', 'customization', 'get', org(o), `--siteId=${site}`]),
-  siteSpaces: (o, site) => list(['organizations', 'sites', 'site-spaces', 'list', org(o), `--siteId=${site}`]),
-  siteSpaceCustomization: (o, site, siteSpace) =>
-    get([
-      ...['organizations', 'sites', 'site-spaces', 'customization', 'get', org(o)],
-      `--siteId=${site}`,
-      `--siteSpaceId=${siteSpace}`,
-    ]),
-};
+export const api = createClient();

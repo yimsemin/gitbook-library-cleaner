@@ -153,6 +153,16 @@ export function selectBatch(approved, fresh, size) {
   return { batch: remaining.slice(0, size), remaining: remaining.length };
 }
 
+/**
+ * 다음 검증에 쓸 API 호출을 어림하고, 남은 호출이 모자란지 본다.
+ * 검증은 전체 검사 한 번(usage.requests)과 삭제 반영 확인(파일 목록 100개당 1건, 최대 19번)이다.
+ */
+export function verifyQuota({ requests, rateLimit }, fileCount, now = Date.now()) {
+  const needed = requests + Math.ceil(fileCount / 100) * 19;
+  const short = Boolean(rateLimit) && rateLimit.reset * 1000 > now && rateLimit.remaining < needed;
+  return { needed, short };
+}
+
 export function formatBytes(bytes) {
   if (bytes < 1000) return `${bytes} B`;
   if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1)} KB`;

@@ -8,13 +8,24 @@ skill/                     배포 단위
   scripts/gblc.mjs         명령: login, scan, prepare, verify
   scripts/scan.mjs         검사 범위 수집
   scripts/lib.mjs          사용 여부 판정 (네트워크 없음)
-  scripts/gitbook.mjs      GitBook CLI 조회
+  scripts/gitbook.mjs      GitBook API 조회 (재시도, 호출 제한)
+  scripts/capture-auth.mjs CLI 프로세스에서 로그인 인증 값을 넘겨받음
   scripts/login.mjs        브라우저 로그인
   scripts/browser-delete.js  브라우저에서 실행하는 삭제 스크립트
   test/lib.test.mjs        판정 로직과 삭제 스크립트 테스트
+  test/gitbook.test.mjs    조회, 로그인 재사용, 검사 중단 조건 테스트
   package.json             GitBook CLI 버전 고정
   .npmrc                   설치 스크립트 실행 차단
 ```
+
+## 조회 방식
+
+- 로그인: 실행마다 CLI의 `whoami`를 한 번 실행합니다. CLI가 필요하면 로그인을 갱신하고, `capture-auth.mjs`가 CLI의 API 요청에서 인증 값을 IPC로 넘깁니다. 인증 값은 메모리에만 둡니다. `whoami`에서 인증 값을 받지 못하면 3번까지 시도합니다. 조회 응답이 401이면 `whoami`를 한 번 더 실행합니다.
+- 조회: 한 프로세스에서 API를 직접 호출하며 동시에 10개까지 보냅니다. 연결 실패, 429, 5xx는 3번까지 시도하고, 호출 제한이 60초보다 늦게 풀리면 바로 실패합니다. 하나라도 최종 실패하면 검사를 중단합니다.
+- 호출 한도: 삭제 묶음을 만들기 전에 응답 헤더의 남은 호출이 다음 검증의 어림값(`verifyQuota`)보다 적으면 묶음을 만들지 않습니다.
+- 문서는 한 번의 검사 안에서만 중복을 없애고, 실행 사이에는 저장해 두지 않습니다. 공식 명세에서 문서 ID의 내용이 바뀌지 않는다는 보장을 확인하지 못했습니다.
+
+## 검사 결과 파일
 
 검사 결과는 명령을 실행한 위치의 `gblc-reports/<시각>/`에 저장됩니다.
 
@@ -34,11 +45,15 @@ skill/                     배포 단위
 | `timeout: row for …` | 목록 보기인지, 행 구조와 파일 ID 위치 |
 | `timeout: Delete menu item`, `timeout: confirm dialog` | 메뉴와 확인 창의 문구·구조 (`browser-delete.js`) |
 | `읽을 수 없는 페이지 형식`, `자동 생성 페이지` | `lib.mjs`의 `collectDocuments` |
-| CLI 명령 실패 | `gitbook.mjs`, CLI 버전 |
+| `GitBook 로그인 정보가 없습니다` | `login` 실행. CLI 버전을 올렸다면 `capture-auth.mjs`와 `whoami` 동작 |
+| `GitBook 조회 실패` | 표시된 상태 코드와 경로, `gitbook.mjs` |
+| `삭제 묶음을 만들지 않았습니다` | 안내된 시각 뒤에 `prepare` |
 
 ## 코드를 고친 뒤
 
 1. `skill` 폴더에서 `npm test`를 실행합니다.
 2. 판정 로직이나 삭제 스크립트를 고쳤다면 `--batch 2`로 삭제와 검증을 다시 확인합니다.
+
+CLI 버전을 올리면 `npm test`가 저장된 로그인의 갱신과 재사용을 임시 설정 폴더와 로컬 서버로 확인합니다.
 
 `npm audit`은 GitBook CLI의 의존 패키지에 대한 취약점을 보고합니다. CLI 버전을 올릴 때 함께 확인합니다.
