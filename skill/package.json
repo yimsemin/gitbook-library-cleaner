@@ -1,0 +1,16 @@
+{
+  "name": "gitbook-library-cleaner",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node --test"
+  },
+  "type": "module",
+  "dependencies": {
+    "@gitbook/cli": "0.33.9"
+  },
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  }
+}

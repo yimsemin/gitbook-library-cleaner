@@ -1,0 +1,17 @@
+# ysm 표준 설정: 매주 월요일, minor·patch 묶음, major 개별.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /skill
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
